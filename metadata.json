@@ -1,0 +1,6 @@
+{
+  "name": "Infinity Files",
+  "description": "A lightweight directory browser built to cleanly navigate local storage without the clutter found in stock file managers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
