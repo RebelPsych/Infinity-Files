@@ -44,10 +44,18 @@ data class FileItem(
   val isReadable: Boolean,
   val isWritable: Boolean,
   val isHidden: Boolean,
+  val isUserHidden: Boolean = false,
   val childCount: Int? = null,
   val category: FileCategory = FileCategory.OTHER,
   val isBookmarked: Boolean = false
 ) {
+  val isTextDocument: Boolean
+    get() = extension in setOf(
+      "txt", "md", "markdown", "csv", "log", "json", "xml", "html", "htm", "css",
+      "kt", "kts", "java", "py", "js", "ts", "yaml", "yml", "sh", "c", "cpp", "h",
+      "rs", "go", "sql", "ini", "cfg", "conf", "properties", "gradle", "toml", "rtf"
+    )
+
   val formattedSize: String
     get() {
       if (isDirectory) {
@@ -87,7 +95,11 @@ data class FileItem(
     }
 
   companion object {
-    fun fromFile(file: File, isBookmarked: Boolean = false): FileItem {
+    fun fromFile(
+      file: File,
+      isBookmarked: Boolean = false,
+      isUserHidden: Boolean = false
+    ): FileItem {
       val isDir = file.isDirectory
       val ext = if (isDir) "" else file.extension.lowercase()
       val category = if (isDir) FileCategory.FOLDER else determineCategory(ext)
@@ -107,7 +119,8 @@ data class FileItem(
         mimeType = mime,
         isReadable = file.canRead(),
         isWritable = file.canWrite(),
-        isHidden = file.name.startsWith("."),
+        isHidden = file.name.startsWith(".") || isUserHidden,
+        isUserHidden = isUserHidden,
         childCount = children,
         category = category,
         isBookmarked = isBookmarked
@@ -116,11 +129,11 @@ data class FileItem(
 
     private fun determineCategory(extension: String): FileCategory {
       return when (extension) {
-        "txt", "md", "markdown", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "rtf", "csv" -> FileCategory.DOCUMENT
-        "kt", "kts", "java", "py", "js", "ts", "json", "xml", "html", "css", "yaml", "yml", "sh", "c", "cpp", "h", "rs", "go", "sql" -> FileCategory.CODE
-        "png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "ico" -> FileCategory.IMAGE
+        "txt", "md", "markdown", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "rtf", "csv", "log" -> FileCategory.DOCUMENT
+        "kt", "kts", "java", "py", "js", "ts", "json", "xml", "html", "htm", "css", "yaml", "yml", "sh", "c", "cpp", "h", "rs", "go", "sql", "ini", "cfg", "conf", "properties", "gradle", "toml" -> FileCategory.CODE
+        "png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "ico", "heic", "heif" -> FileCategory.IMAGE
         "mp3", "wav", "ogg", "m4a", "flac", "aac", "mid" -> FileCategory.AUDIO
-        "mp4", "mkv", "avi", "mov", "webm", "flv", "wmv" -> FileCategory.VIDEO
+        "mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "3gp" -> FileCategory.VIDEO
         "zip", "tar", "gz", "7z", "rar", "bz2", "xz" -> FileCategory.ARCHIVE
         else -> FileCategory.OTHER
       }
@@ -128,21 +141,35 @@ data class FileItem(
 
     private fun determineMimeType(extension: String): String {
       return when (extension) {
-        "txt" -> "text/plain"
+        "txt", "log", "ini", "cfg", "conf", "properties", "toml" -> "text/plain"
         "md", "markdown" -> "text/markdown"
         "pdf" -> "application/pdf"
+        "doc" -> "application/msword"
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "xls" -> "application/vnd.ms-excel"
+        "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "ppt" -> "application/vnd.ms-powerpoint"
+        "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        "rtf" -> "application/rtf"
         "csv" -> "text/csv"
         "json" -> "application/json"
         "xml" -> "application/xml"
-        "html" -> "text/html"
+        "html", "htm" -> "text/html"
         "png" -> "image/png"
         "jpg", "jpeg" -> "image/jpeg"
         "webp" -> "image/webp"
         "gif" -> "image/gif"
+        "heic", "heif" -> "image/heic"
         "mp3" -> "audio/mpeg"
         "wav" -> "audio/wav"
+        "ogg" -> "audio/ogg"
+        "m4a" -> "audio/mp4"
         "mp4" -> "video/mp4"
+        "mkv" -> "video/x-matroska"
+        "mov" -> "video/quicktime"
+        "webm" -> "video/webm"
         "zip" -> "application/zip"
+        "apk" -> "application/vnd.android.package-archive"
         else -> "application/octet-stream"
       }
     }

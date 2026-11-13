@@ -1,12 +1,7 @@
 package com.example.ui.components
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,23 +20,20 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -54,22 +46,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.model.FileCategory
-import com.example.model.FileInspectionInfo
 import com.example.model.FileItem
 import com.example.ui.theme.PureBlack
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.PurpleAccent
 import com.example.ui.theme.PurpleAccentLight
-import com.example.ui.theme.Slate800
+import com.example.ui.theme.Slate400
 import com.example.ui.theme.Slate900
 import java.io.File
 
@@ -100,30 +91,25 @@ fun FilePreviewModal(
         .padding(horizontal = 16.dp)
         .navigationBarsPadding()
     ) {
-      // Header
+      // Minimal Header: just the name and actions
       Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
       ) {
-        Column(modifier = Modifier.weight(1f)) {
-          Text(
-            text = file.name,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1
-          )
-          Text(
-            text = "${file.formattedSize} • ${file.mimeType}",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-          )
-        }
+        Text(
+          text = file.name,
+          style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+          color = PureWhite,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+          modifier = Modifier.weight(1f)
+        )
 
         if (previewText != null) {
           if (isEditing) {
             Button(
               onClick = { onSaveContent(editedContent) },
-              colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+              colors = ButtonDefaults.buttonColors(containerColor = PurpleAccent),
               modifier = Modifier
                 .padding(end = 4.dp)
                 .testTag("save_file_button")
@@ -137,17 +123,17 @@ fun FilePreviewModal(
               onClick = onToggleEdit,
               modifier = Modifier.testTag("edit_file_button")
             ) {
-              Icon(Icons.Default.Edit, contentDescription = "Edit File", tint = MaterialTheme.colorScheme.primary)
+              Icon(Icons.Default.Edit, contentDescription = "Edit File", tint = PurpleAccentLight)
             }
           }
         }
 
         IconButton(onClick = onShare) {
-          Icon(Icons.Default.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.onSurface)
+          Icon(Icons.Default.Share, contentDescription = "Share", tint = PureWhite)
         }
 
         IconButton(onClick = onDismiss) {
-          Icon(Icons.Default.Close, contentDescription = "Close")
+          Icon(Icons.Default.Close, contentDescription = "Close", tint = PureWhite)
         }
       }
 
@@ -188,7 +174,7 @@ fun FilePreviewModal(
               textStyle = TextStyle(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurface
+                color = PureWhite
               ),
               cursorBrush = SolidColor(PurpleAccentLight),
               modifier = Modifier
@@ -205,7 +191,6 @@ fun FilePreviewModal(
                 .horizontalScroll(horizontalScroll)
                 .padding(12.dp)
             ) {
-              // Line numbers
               val lines = previewText.lines()
               val lineNumbers = (1..lines.size).joinToString("\n")
               Text(
@@ -213,23 +198,22 @@ fun FilePreviewModal(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
-                color = MaterialTheme.colorScheme.outline,
+                color = Slate400,
                 modifier = Modifier.padding(end = 12.dp)
               )
 
-              // Code/Text content
               Text(
                 text = previewText,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
-                color = MaterialTheme.colorScheme.onSurface
+                color = PureWhite
               )
             }
           }
         }
       } else {
-        // Fallback info
+        // Non-text document fallback with direct Open/Share button
         Box(
           modifier = Modifier
             .fillMaxWidth()
@@ -238,151 +222,24 @@ fun FilePreviewModal(
         ) {
           Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-              text = "Binary / Media File",
+              text = file.name,
               style = MaterialTheme.typography.titleMedium,
-              color = MaterialTheme.colorScheme.onSurface
+              color = PureWhite
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-              text = "Use external apps or Share to open this file.",
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+              onClick = onShare,
+              colors = ButtonDefaults.buttonColors(containerColor = PurpleAccent)
+            ) {
+              Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("Open / Share")
+            }
           }
         }
       }
 
       Spacer(modifier = Modifier.height(8.dp))
-    }
-  }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun FileInspectionSheet(
-  info: FileInspectionInfo,
-  onDismiss: () -> Unit
-) {
-  val sheetState = rememberModalBottomSheetState()
-  val context = LocalContext.current
-
-  ModalBottomSheet(
-    onDismissRequest = onDismiss,
-    sheetState = sheetState,
-    containerColor = MaterialTheme.colorScheme.surface,
-    modifier = Modifier.testTag("file_inspection_sheet")
-  ) {
-    Column(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(horizontal = 20.dp)
-        .padding(bottom = 28.dp)
-        .navigationBarsPadding()
-    ) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        Icon(
-          imageVector = Icons.Default.Fingerprint,
-          contentDescription = null,
-          tint = PurpleAccent,
-          modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-          text = "File Properties & Hashes",
-          style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-          color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.weight(1f))
-        IconButton(onClick = onDismiss) {
-          Icon(Icons.Default.Close, contentDescription = "Close")
-        }
-      }
-
-      HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
-
-      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        PropertyRow("Name", info.fileItem.name)
-        PropertyRow("Path", info.absolutePath)
-        PropertyRow("Size", "${info.fileItem.formattedSize} (${info.fileItem.size} bytes)")
-        PropertyRow("Type", info.fileItem.mimeType)
-        PropertyRow("Modified", info.fileItem.formattedDate)
-        PropertyRow("Permissions", info.permissions)
-        info.lineCount?.let {
-          PropertyRow("Lines", "$it lines")
-        }
-
-        if (info.md5Hash != null) {
-          HashRow("MD5", info.md5Hash, context)
-        }
-        if (info.sha256Hash != null) {
-          HashRow("SHA-256", info.sha256Hash, context)
-        }
-      }
-    }
-  }
-}
-
-@Composable
-private fun PropertyRow(label: String, value: String) {
-  Column(modifier = Modifier.fillMaxWidth()) {
-    Text(
-      text = label,
-      style = MaterialTheme.typography.labelSmall,
-      color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-    Text(
-      text = value,
-      style = MaterialTheme.typography.bodyMedium,
-      color = MaterialTheme.colorScheme.onSurface
-    )
-  }
-}
-
-@Composable
-private fun HashRow(algorithm: String, hash: String, context: Context) {
-  Surface(
-    modifier = Modifier.fillMaxWidth(),
-    color = MaterialTheme.colorScheme.surfaceVariant,
-    shape = RoundedCornerShape(10.dp)
-  ) {
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(10.dp),
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      Column(modifier = Modifier.weight(1f)) {
-        Text(
-          text = algorithm,
-          style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-          color = PurpleAccent
-        )
-        Text(
-          text = hash,
-          fontFamily = FontFamily.Monospace,
-          fontSize = 11.sp,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          maxLines = 2
-        )
-      }
-      IconButton(
-        onClick = {
-          val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-          val clip = ClipData.newPlainText(algorithm, hash)
-          clipboard.setPrimaryClip(clip)
-          Toast.makeText(context, "$algorithm copied", Toast.LENGTH_SHORT).show()
-        }
-      ) {
-        Icon(
-          imageVector = Icons.Default.ContentCopy,
-          contentDescription = "Copy Hash",
-          tint = MaterialTheme.colorScheme.primary,
-          modifier = Modifier.size(18.dp)
-        )
-      }
     }
   }
 }

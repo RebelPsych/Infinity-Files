@@ -1,7 +1,9 @@
 package com.example.ui
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -49,10 +51,10 @@ import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -65,6 +67,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,13 +75,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.model.ClipboardAction
 import com.example.model.FileItem
@@ -104,6 +110,7 @@ fun InfinityFilesScreen(
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
+  val lifecycleOwner = LocalLifecycleOwner.current
   val snackbarHostState = remember { SnackbarHostState() }
 
   val currentPath by viewModel.currentPath.collectAsStateWithLifecycle()
@@ -113,6 +120,7 @@ fun InfinityFilesScreen(
   val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
   val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
   val userNotice by viewModel.userNotice.collectAsStateWithLifecycle()
+  val showHiddenFolders by viewModel.showHiddenFolders.collectAsStateWithLifecycle()
   val selectedItemPaths by viewModel.selectedItemPaths.collectAsStateWithLifecycle()
   val clipboard by viewModel.clipboard.collectAsStateWithLifecycle()
   val activePreviewFile by viewModel.activePreviewFile.collectAsStateWithLifecycle()
@@ -122,29 +130,42 @@ fun InfinityFilesScreen(
 
   // Storage permission check state
   var hasStoragePermission by remember {
-    mutableStateOf(
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        Environment.isExternalStorageManager()
-      } else {
-        true
+    mutableStateOf(checkStoragePermission(context))
+  }
+
+  // Re-check storage permission when returning from system settings
+  DisposableEffect(lifecycleOwner) {
+    val observer = LifecycleEventObserver { _, event ->
+      if (event == Lifecycle.Event.ON_RESUME) {
+        val grantedNow = checkStoragePermission(context)
+        if (grantedNow && !hasStoragePermission) {
+          hasStoragePermission = true
+          viewModel.onStoragePermissionGranted()
+        } else {
+          hasStoragePermission = grantedNow
+        }
       }
-    )
+    }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose {
+      lifecycleOwner.lifecycle.removeObserver(observer)
+    }
   }
 
   // Permission launcher for Android 10 and below
   val legacyPermissionLauncher = rememberLauncherForActivityResult(
-    contract = ActivityResultContracts.RequestPermission()
-  ) { isGranted ->
+    contract = ActivityResultContracts.RequestMultiplePermissions()
+  ) { permissions ->
+    val isGranted = permissions.values.all { it }
     hasStoragePermission = isGranted
-    if (isGranted) viewModel.refreshDirectory()
+    if (isGranted) {
+      viewModel.onStoragePermissionGranted()
+    }
   }
 
   // Handle native back button
   BackHandler {
-    val handled = viewModel.navigateUp()
-    if (!handled) {
-      // Exit or top level
-    }
+    viewModel.navigateUp()
   }
 
   // Show user notice snackbar
@@ -175,6 +196,8 @@ fun InfinityFilesScreen(
         storageVolumes = storageVolumes,
         currentPath = currentPath,
         onSelectVolume = { path -> viewModel.navigateTo(path) },
+        showHiddenFolders = showHiddenFolders,
+        onToggleShowHidden = { viewModel.toggleShowHiddenFolders() },
         onNewFolder = { viewModel.showDialog(ActiveDialog.NewFolder) },
         onNewFile = { viewModel.showDialog(ActiveDialog.NewFile) }
       )
@@ -213,12 +236,12 @@ fun InfinityFilesScreen(
               Spacer(modifier = Modifier.width(10.dp))
               Column(modifier = Modifier.weight(1f)) {
                 Text(
-                  text = "Full Device Storage Access",
+                  text = "Storage Access Required",
                   style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                   color = PureWhite
                 )
                 Text(
-                  text = "Grant permission to browse every folder on your phone",
+                  text = "Allow access to browse all device folders and files",
                   style = MaterialTheme.typography.labelSmall,
                   color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -237,11 +260,17 @@ fun InfinityFilesScreen(
                       context.startActivity(intent)
                     }
                   } else {
-                    legacyPermissionLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                    legacyPermissionLauncher.launch(
+                      arrayOf(
+                        Manifest.permission.READ_EXTERNAL_STORAGE,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE
+                      )
+                    )
                   }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = PurpleAccent),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.testTag("grant_storage_permission_button")
               ) {
                 Text("Grant", fontSize = 12.sp)
               }
@@ -301,7 +330,7 @@ fun InfinityFilesScreen(
           }
         }
 
-        // Grid View of All Folders and Files
+        // Grid View of All Accessible Folders and Files
         if (isLoading && items.isEmpty()) {
           Box(
             modifier = Modifier
@@ -331,7 +360,7 @@ fun InfinityFilesScreen(
               )
               Spacer(modifier = Modifier.height(14.dp))
               Text(
-                text = "Empty Directory",
+                text = "Empty Folder",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = PureWhite
               )
@@ -365,7 +394,12 @@ fun InfinityFilesScreen(
             modifier = Modifier
               .fillMaxWidth()
               .weight(1f),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(
+              start = 8.dp,
+              end = 8.dp,
+              top = 8.dp,
+              bottom = if (isSelectionMode) 92.dp else 16.dp
+            ),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
           ) {
@@ -375,7 +409,11 @@ fun InfinityFilesScreen(
                 item = item,
                 isSelected = isSelected,
                 isSelectionMode = isSelectionMode,
-                onClick = { viewModel.openFile(item) },
+                onClick = {
+                  viewModel.openFile(item) { docItem ->
+                    openExternalDocument(context, docItem)
+                  }
+                },
                 onLongClick = { viewModel.toggleSelectItem(item) }
               )
             }
@@ -391,8 +429,11 @@ fun InfinityFilesScreen(
         modifier = Modifier
           .align(Alignment.BottomCenter)
           .navigationBarsPadding()
-          .padding(horizontal = 16.dp, vertical = 12.dp)
+          .padding(horizontal = 12.dp, vertical = 12.dp)
       ) {
+        val selectedItems = items.filter { selectedItemPaths.contains(it.path) }
+        val allUserHidden = selectedItems.isNotEmpty() && selectedItems.all { it.isUserHidden }
+
         Surface(
           color = Slate900,
           shape = RoundedCornerShape(16.dp),
@@ -402,22 +443,22 @@ fun InfinityFilesScreen(
           Row(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(horizontal = 12.dp, vertical = 8.dp),
+              .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
           ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
               IconButton(onClick = { viewModel.clearSelection() }) {
-                Icon(Icons.Default.Close, contentDescription = "Clear", tint = PureWhite)
+                Icon(Icons.Default.Close, contentDescription = "Clear Selection", tint = PureWhite)
               }
               Text(
-                text = "${selectedItemPaths.size} selected",
+                text = "${selectedItemPaths.size}",
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = PureWhite
               )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
               IconButton(
                 onClick = { viewModel.selectAll() },
                 modifier = Modifier.testTag("select_all_button")
@@ -425,10 +466,22 @@ fun InfinityFilesScreen(
                 Icon(Icons.Default.SelectAll, contentDescription = "Select All", tint = PurpleAccentLight)
               }
 
+              // Hide / Unhide selected folders or files
+              IconButton(
+                onClick = { viewModel.toggleHideSelectedItems() },
+                modifier = Modifier.testTag("toggle_hide_selected_button")
+              ) {
+                Icon(
+                  imageVector = if (allUserHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                  contentDescription = if (allUserHidden) "Unhide" else "Hide",
+                  tint = PureWhite
+                )
+              }
+
               if (selectedItemPaths.size == 1) {
                 IconButton(
                   onClick = {
-                    val singleItem = items.find { it.path == selectedItemPaths.first() }
+                    val singleItem = selectedItems.firstOrNull()
                     singleItem?.let { viewModel.showDialog(ActiveDialog.Rename(it)) }
                   },
                   modifier = Modifier.testTag("rename_button")
@@ -436,14 +489,15 @@ fun InfinityFilesScreen(
                   Icon(Icons.Default.DriveFileRenameOutline, contentDescription = "Rename", tint = PureWhite)
                 }
 
-                IconButton(
-                  onClick = {
-                    val singleItem = items.find { it.path == selectedItemPaths.first() }
-                    singleItem?.let { shareFile(context, it) }
-                  },
-                  modifier = Modifier.testTag("share_button")
-                ) {
-                  Icon(Icons.Default.Share, contentDescription = "Share", tint = PureWhite)
+                if (selectedItems.firstOrNull()?.isDirectory == false) {
+                  IconButton(
+                    onClick = {
+                      selectedItems.firstOrNull()?.let { shareFile(context, it) }
+                    },
+                    modifier = Modifier.testTag("share_button")
+                  ) {
+                    Icon(Icons.Default.Share, contentDescription = "Share", tint = PureWhite)
+                  }
                 }
               }
 
@@ -463,7 +517,6 @@ fun InfinityFilesScreen(
 
               IconButton(
                 onClick = {
-                  val selectedItems = items.filter { selectedItemPaths.contains(it.path) }
                   viewModel.showDialog(ActiveDialog.DeleteConfirm(selectedItems))
                 },
                 modifier = Modifier.testTag("batch_delete_button")
@@ -505,10 +558,10 @@ fun InfinityFilesScreen(
         onConfirm = { viewModel.deleteItems(dlg.items) }
       )
     }
-    else -> {}
+    null -> {}
   }
 
-  // Image & Media Preview Modal
+  // Image & Document Preview Modal
   activePreviewFile?.let { previewFile ->
     FilePreviewModal(
       file = previewFile,
@@ -520,6 +573,44 @@ fun InfinityFilesScreen(
       onDismiss = { viewModel.closePreview() }
     )
   }
+}
+
+private fun checkStoragePermission(context: Context): Boolean {
+  return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+    Environment.isExternalStorageManager()
+  } else {
+    val readGranted = ContextCompat.checkSelfPermission(
+      context,
+      Manifest.permission.READ_EXTERNAL_STORAGE
+    ) == PackageManager.PERMISSION_GRANTED
+    val writeGranted = if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+      ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.WRITE_EXTERNAL_STORAGE
+      ) == PackageManager.PERMISSION_GRANTED
+    } else {
+      true
+    }
+    readGranted && writeGranted
+  }
+}
+
+private fun openExternalDocument(context: Context, fileItem: FileItem): Boolean {
+  return runCatching {
+    val file = File(fileItem.path)
+    val uri: Uri = FileProvider.getUriForFile(
+      context,
+      "${context.packageName}.fileprovider",
+      file
+    )
+    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+      setDataAndType(uri, fileItem.mimeType)
+      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(viewIntent)
+    true
+  }.getOrDefault(false)
 }
 
 private fun shareFile(context: Context, fileItem: FileItem) {

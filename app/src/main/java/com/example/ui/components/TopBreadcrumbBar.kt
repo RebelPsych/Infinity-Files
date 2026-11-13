@@ -20,6 +20,8 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -46,8 +48,8 @@ import com.example.model.StorageVolumeInfo
 import com.example.ui.theme.PureBlack
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.PurpleAccent
+import com.example.ui.theme.Slate400
 import com.example.ui.theme.Slate700
-import com.example.ui.theme.Slate800
 import com.example.ui.theme.Slate900
 
 @Composable
@@ -59,6 +61,8 @@ fun TopBreadcrumbBar(
   storageVolumes: List<StorageVolumeInfo>,
   currentPath: String,
   onSelectVolume: (String) -> Unit,
+  showHiddenFolders: Boolean,
+  onToggleShowHidden: () -> Unit,
   onNewFolder: () -> Unit,
   onNewFile: () -> Unit,
   modifier: Modifier = Modifier
@@ -83,7 +87,7 @@ fun TopBreadcrumbBar(
         .statusBarsPadding()
         .padding(top = 4.dp, bottom = 4.dp)
     ) {
-      // Top Row: Navigation controls & Partition Switcher
+      // Top Row: Navigation controls, Partition Switcher, Show/Hide & Create
       Row(
         modifier = Modifier
           .fillMaxWidth()
@@ -94,12 +98,12 @@ fun TopBreadcrumbBar(
           IconButton(
             onClick = onNavigateUp,
             modifier = Modifier
-              .size(38.dp)
+              .size(48.dp)
               .testTag("nav_up_button")
           ) {
             Icon(
               imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-              contentDescription = "Up",
+              contentDescription = "Navigate Up",
               tint = PureWhite
             )
           }
@@ -116,7 +120,7 @@ fun TopBreadcrumbBar(
             shape = RoundedCornerShape(8.dp)
           ) {
             Row(
-              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+              modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
               verticalAlignment = Alignment.CenterVertically
             ) {
               Icon(
@@ -126,7 +130,12 @@ fun TopBreadcrumbBar(
                 modifier = Modifier.size(16.dp)
               )
               Spacer(modifier = Modifier.width(6.dp))
-              val activeVolume = storageVolumes.find { currentPath.startsWith(it.path) }
+              val activeVolume = storageVolumes
+                .filter {
+                  currentPath == it.path ||
+                    currentPath.startsWith(if (it.path == "/") "/" else "${it.path}/")
+                }
+                .maxByOrNull { it.path.length }
               Text(
                 text = activeVolume?.title ?: "Storage",
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
@@ -152,7 +161,7 @@ fun TopBreadcrumbBar(
                     Text(
                       text = volume.path,
                       style = MaterialTheme.typography.labelSmall,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant
+                      color = Slate400
                     )
                   }
                 },
@@ -167,11 +176,25 @@ fun TopBreadcrumbBar(
 
         Spacer(modifier = Modifier.weight(1f))
 
+        // Show / Hide Hidden Folders Toggle
+        IconButton(
+          onClick = onToggleShowHidden,
+          modifier = Modifier
+            .size(48.dp)
+            .testTag("toggle_hidden_folders")
+        ) {
+          Icon(
+            imageVector = if (showHiddenFolders) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+            contentDescription = if (showHiddenFolders) "Hide hidden folders" else "Show hidden folders",
+            tint = if (showHiddenFolders) PurpleAccent else Slate400
+          )
+        }
+
         // Create Folder & Create File Quick Actions
         IconButton(
           onClick = onNewFolder,
           modifier = Modifier
-            .size(38.dp)
+            .size(48.dp)
             .testTag("action_new_folder")
         ) {
           Icon(
@@ -184,7 +207,7 @@ fun TopBreadcrumbBar(
         IconButton(
           onClick = onNewFile,
           modifier = Modifier
-            .size(38.dp)
+            .size(48.dp)
             .testTag("action_new_file")
         ) {
           Icon(
@@ -199,7 +222,7 @@ fun TopBreadcrumbBar(
       Row(
         modifier = Modifier
           .fillMaxWidth()
-          .padding(top = 4.dp, bottom = 4.dp)
+          .padding(top = 2.dp, bottom = 4.dp)
           .horizontalScroll(breadcrumbScrollState)
           .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -223,7 +246,7 @@ fun TopBreadcrumbBar(
                 fontSize = 12.sp
               ),
               color = if (isLast) PureWhite else Slate700,
-              modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
             )
           }
 

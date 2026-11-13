@@ -19,6 +19,17 @@ class StorageRepository(private val context: Context) {
 
   private val prefs = context.getSharedPreferences("infinity_files_prefs", Context.MODE_PRIVATE)
   private val bookmarksKey = "bookmarked_paths"
+  private val hiddenPathsKey = "hidden_folder_paths"
+  private val showHiddenKey = "show_hidden_folders"
+
+  val isExternalStorageReadable: Boolean
+    get() {
+      val extRoot = Environment.getExternalStorageDirectory()
+      return extRoot != null && extRoot.exists() && extRoot.canRead() && extRoot.listFiles() != null
+    }
+
+  val externalStoragePath: String?
+    get() = Environment.getExternalStorageDirectory()?.absolutePath
 
   val defaultWorkspacePath: String by lazy {
     val extRoot = Environment.getExternalStorageDirectory()
@@ -74,11 +85,13 @@ class StorageRepository(private val context: Context) {
       )
     }
 
-    // 2. Discover external SD cards or mounted storage in /storage
+    // 2. Discover external SD cards or mounted storage in /storage and externalFilesDirs
+    val discoveredPaths = volumes.map { it.path }.toMutableSet()
     val storageDir = File("/storage")
     if (storageDir.exists() && storageDir.canRead()) {
       storageDir.listFiles()?.forEach { file ->
-        if (file.isDirectory && file.name != "emulated" && file.name != "self") {
+        if (file.isDirectory && file.name != "emulated" && file.name != "self" && file.canRead() && !discoveredPaths.contains(file.absolutePath)) {
+          discoveredPaths.add(file.absolutePath)
           val stats = getPathStats(file)
           volumes.add(
             StorageVolumeInfo(
@@ -90,6 +103,29 @@ class StorageRepository(private val context: Context) {
               freeBytes = stats.second
             )
           )
+        }
+      }
+    }
+    context.getExternalFilesDirs(null)?.forEach { appDir ->
+      if (appDir != null) {
+        val marker = "/Android/data/"
+        val idx = appDir.absolutePath.indexOf(marker)
+        if (idx > 0) {
+          val volRoot = File(appDir.absolutePath.substring(0, idx))
+          if (volRoot.exists() && volRoot.canRead() && !discoveredPaths.contains(volRoot.absolutePath)) {
+            discoveredPaths.add(volRoot.absolutePath)
+            val stats = getPathStats(volRoot)
+            volumes.add(
+              StorageVolumeInfo(
+                id = "vol_${volRoot.name}",
+                title = "External (${volRoot.name})",
+                subtitle = volRoot.absolutePath,
+                path = volRoot.absolutePath,
+                totalBytes = stats.first,
+                freeBytes = stats.second
+              )
+            )
+          }
         }
       }
     }
@@ -156,13 +192,19 @@ class StorageRepository(private val context: Context) {
 
       val files = dir.listFiles() ?: emptyArray()
       val bookmarkedSet = getBookmarkedPaths()
+      val hiddenSet = getHiddenPaths()
 
       var items = files.asSequence()
         .filter { file ->
-          if (!showHidden && file.name.startsWith(".")) false else true
+          val isDotOrHidden = file.name.startsWith(".") || hiddenSet.contains(file.absolutePath)
+          showHidden || !isDotOrHidden
         }
         .map { file ->
-          FileItem.fromFile(file, isBookmarked = bookmarkedSet.contains(file.absolutePath))
+          FileItem.fromFile(
+            file = file,
+            isBookmarked = bookmarkedSet.contains(file.absolutePath),
+            isUserHidden = hiddenSet.contains(file.absolutePath)
+          )
         }
 
       // Filter by search query if present
@@ -242,6 +284,7 @@ class StorageRepository(private val context: Context) {
       if (destination.exists()) throw IllegalStateException("An item with name '$safeName' already exists")
       val success = target.renameTo(destination)
       if (!success) throw IllegalStateException("Failed to rename item")
+      updateHiddenPathOnMoveOrRename(target.absolutePath, destination.absolutePath)
       destination
     }
   }
@@ -252,10 +295,10 @@ class StorageRepository(private val context: Context) {
       for (p in paths) {
         val f = File(p)
         if (f.exists()) {
-          if (f.isDirectory) {
-            if (f.deleteRecursively()) count++
-          } else {
-            if (f.delete()) count++
+          val deleted = if (f.isDirectory) f.deleteRecursively() else f.delete()
+          if (deleted) {
+            removeHiddenPath(p)
+            count++
           }
         }
       }
@@ -385,6 +428,45 @@ class StorageRepository(private val context: Context) {
       sha256Hash = sha256Str,
       lineCount = lineCount
     )
+  }
+
+  fun getShowHiddenFolders(): Boolean {
+    return prefs.getBoolean(showHiddenKey, false)
+  }
+
+  fun setShowHiddenFolders(show: Boolean) {
+    prefs.edit().putBoolean(showHiddenKey, show).apply()
+  }
+
+  fun getHiddenPaths(): Set<String> {
+    return prefs.getStringSet(hiddenPathsKey, emptySet())?.toSet() ?: emptySet()
+  }
+
+  fun hidePaths(paths: List<String>) {
+    val current = getHiddenPaths().toMutableSet()
+    current.addAll(paths)
+    prefs.edit().putStringSet(hiddenPathsKey, current).apply()
+  }
+
+  fun unhidePaths(paths: List<String>) {
+    val current = getHiddenPaths().toMutableSet()
+    current.removeAll(paths.toSet())
+    prefs.edit().putStringSet(hiddenPathsKey, current).apply()
+  }
+
+  private fun removeHiddenPath(path: String) {
+    val current = getHiddenPaths().toMutableSet()
+    if (current.remove(path)) {
+      prefs.edit().putStringSet(hiddenPathsKey, current).apply()
+    }
+  }
+
+  private fun updateHiddenPathOnMoveOrRename(oldPath: String, newPath: String) {
+    val current = getHiddenPaths().toMutableSet()
+    if (current.remove(oldPath)) {
+      current.add(newPath)
+      prefs.edit().putStringSet(hiddenPathsKey, current).apply()
+    }
   }
 
   fun getBookmarkedPaths(): Set<String> {

@@ -2,7 +2,6 @@ package com.example.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -23,8 +23,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -37,9 +37,9 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.model.FileCategory
 import com.example.model.FileItem
-import com.example.ui.theme.PureBlack
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.PurpleAccent
+import com.example.ui.theme.Slate400
 import com.example.ui.theme.Slate800
 import com.example.ui.theme.Slate900
 import java.io.File
@@ -55,6 +55,7 @@ fun FileItemGridCard(
   modifier: Modifier = Modifier
 ) {
   val isImage = item.category == FileCategory.IMAGE && item.isReadable
+  val contentAlpha = if (item.isHidden) 0.55f else 1f
 
   Surface(
     modifier = modifier
@@ -79,11 +80,13 @@ fun FileItemGridCard(
         .padding(8.dp)
     ) {
       Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+          .fillMaxSize()
+          .alpha(contentAlpha),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
       ) {
-        // Thumbnail or White Outline Icon
+        // Thumbnail or Black-filled White-outline Icon
         Box(
           modifier = Modifier
             .size(54.dp)
@@ -91,14 +94,12 @@ fun FileItemGridCard(
           contentAlignment = Alignment.Center
         ) {
           if (item.isDirectory) {
-            // White outline folder icon
             Image(
               painter = painterResource(id = R.drawable.ic_folder_white_outline),
               contentDescription = "Folder",
               modifier = Modifier.size(48.dp)
             )
           } else if (isImage) {
-            // Instant Image Thumbnail
             AsyncImage(
               model = File(item.path),
               contentDescription = item.name,
@@ -108,7 +109,6 @@ fun FileItemGridCard(
               contentScale = ContentScale.Crop
             )
           } else {
-            // White outline file icon
             Image(
               painter = painterResource(id = R.drawable.ic_file_white_outline),
               contentDescription = "File",
@@ -117,7 +117,7 @@ fun FileItemGridCard(
           }
         }
 
-        // Only the name, as explicitly requested
+        // Only the name, clean and clutter-free
         Text(
           text = item.name,
           style = MaterialTheme.typography.bodySmall.copy(
@@ -135,10 +135,21 @@ fun FileItemGridCard(
         )
       }
 
+      if (item.isHidden) {
+        Icon(
+          imageVector = Icons.Default.VisibilityOff,
+          contentDescription = "Hidden",
+          tint = Slate400,
+          modifier = Modifier
+            .size(14.dp)
+            .align(Alignment.TopStart)
+        )
+      }
+
       if (isSelectionMode) {
         Icon(
           imageVector = Icons.Outlined.CheckCircle,
-          contentDescription = null,
+          contentDescription = if (isSelected) "Selected" else "Unselected",
           tint = if (isSelected) PurpleAccent else Slate800,
           modifier = Modifier
             .size(20.dp)

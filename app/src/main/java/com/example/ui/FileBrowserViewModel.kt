@@ -7,12 +7,10 @@ import com.example.data.StorageRepository
 import com.example.model.BreadcrumbSegment
 import com.example.model.ClipboardAction
 import com.example.model.FileCategory
-import com.example.model.FileInspectionInfo
 import com.example.model.FileItem
 import com.example.model.SortOption
 import com.example.model.StagedClipboard
 import com.example.model.StorageVolumeInfo
-import com.example.model.ViewMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,8 +23,6 @@ sealed interface ActiveDialog {
   data object NewFile : ActiveDialog
   data class Rename(val item: FileItem) : ActiveDialog
   data class DeleteConfirm(val items: List<FileItem>) : ActiveDialog
-  data object StorageBreakdown : ActiveDialog
-  data object QuickLocations : ActiveDialog
 }
 
 class FileBrowserViewModel(application: Application) : AndroidViewModel(application) {
@@ -54,23 +50,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
   private val _userNotice = MutableStateFlow<String?>(null)
   val userNotice: StateFlow<String?> = _userNotice.asStateFlow()
 
-  private val _searchQuery = MutableStateFlow("")
-  val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
-
-  private val _isSearchActive = MutableStateFlow(false)
-  val isSearchActive: StateFlow<Boolean> = _isSearchActive.asStateFlow()
-
-  private val _sortOption = MutableStateFlow(SortOption.TYPE_ASC)
-  val sortOption: StateFlow<SortOption> = _sortOption.asStateFlow()
-
-  private val _viewMode = MutableStateFlow(ViewMode.GRID)
-  val viewMode: StateFlow<ViewMode> = _viewMode.asStateFlow()
-
-  private val _showHiddenFiles = MutableStateFlow(false)
-  val showHiddenFiles: StateFlow<Boolean> = _showHiddenFiles.asStateFlow()
-
-  private val _selectedCategory = MutableStateFlow<FileCategory?>(null)
-  val selectedCategory: StateFlow<FileCategory?> = _selectedCategory.asStateFlow()
+  private val _showHiddenFolders = MutableStateFlow(repository.getShowHiddenFolders())
+  val showHiddenFolders: StateFlow<Boolean> = _showHiddenFolders.asStateFlow()
 
   private val _selectedItemPaths = MutableStateFlow<Set<String>>(emptySet())
   val selectedItemPaths: StateFlow<Set<String>> = _selectedItemPaths.asStateFlow()
@@ -87,9 +68,6 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
   private val _isEditingText = MutableStateFlow(false)
   val isEditingText: StateFlow<Boolean> = _isEditingText.asStateFlow()
 
-  private val _inspectionInfo = MutableStateFlow<FileInspectionInfo?>(null)
-  val inspectionInfo: StateFlow<FileInspectionInfo?> = _inspectionInfo.asStateFlow()
-
   private val _activeDialog = MutableStateFlow<ActiveDialog?>(null)
   val activeDialog: StateFlow<ActiveDialog?> = _activeDialog.asStateFlow()
 
@@ -102,8 +80,19 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
 
   fun loadVolumes() {
     viewModelScope.launch {
-      val volumes = repository.getStorageVolumes()
-      _storageVolumes.value = volumes
+      _storageVolumes.value = repository.getStorageVolumes()
+    }
+  }
+
+  fun onStoragePermissionGranted() {
+    loadVolumes()
+    val extPath = repository.externalStoragePath
+    val appFilesPrefix = getApplication<Application>().filesDir.absolutePath
+    if (extPath != null && repository.isExternalStorageReadable && _currentPath.value.startsWith(appFilesPrefix)) {
+      backHistory.clear()
+      navigateTo(extPath, recordHistory = false)
+    } else {
+      refreshDirectory()
     }
   }
 
@@ -118,27 +107,18 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
   }
 
   fun navigateUp(): Boolean {
-    // If search is active, close search
-    if (_isSearchActive.value) {
-      closeSearch()
-      return true
-    }
-    // If preview is open, close preview
     if (_activePreviewFile.value != null) {
       closePreview()
       return true
     }
-    // If dialog is open, close dialog
     if (_activeDialog.value != null) {
       closeDialog()
       return true
     }
-    // If items selected, clear selection
     if (_selectedItemPaths.value.isNotEmpty()) {
       clearSelection()
       return true
     }
-    // If backHistory has items
     if (backHistory.isNotEmpty()) {
       val prev = backHistory.removeAt(backHistory.lastIndex)
       _currentPath.value = prev
@@ -147,7 +127,6 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
       refreshDirectory()
       return true
     }
-    // Otherwise check parent directory
     val curFile = File(_currentPath.value)
     val parent = curFile.parentFile
     if (parent != null && parent.exists() && parent.canRead()) {
@@ -163,10 +142,8 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
       _errorMessage.value = null
       val result = repository.listDirectory(
         dirPath = _currentPath.value,
-        showHidden = _showHiddenFiles.value,
-        sortOption = _sortOption.value,
-        searchQuery = _searchQuery.value,
-        categoryFilter = _selectedCategory.value
+        showHidden = _showHiddenFolders.value,
+        sortOption = SortOption.TYPE_ASC
       )
       result.fold(
         onSuccess = { itemsList ->
@@ -209,41 +186,33 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     _breadcrumbs.value = segments
   }
 
-  fun onSearchQueryChanged(query: String) {
-    _searchQuery.value = query
+  fun toggleShowHiddenFolders() {
+    val newVal = !_showHiddenFolders.value
+    _showHiddenFolders.value = newVal
+    repository.setShowHiddenFolders(newVal)
+    _userNotice.value = if (newVal) "Showing hidden folders" else "Hidden folders concealed"
     refreshDirectory()
   }
 
-  fun toggleSearch() {
-    _isSearchActive.update { !it }
-    if (!_isSearchActive.value) {
-      _searchQuery.value = ""
-      refreshDirectory()
+  fun toggleHideSelectedItems() {
+    val selected = _items.value.filter { _selectedItemPaths.value.contains(it.path) }
+    if (selected.isEmpty()) return
+
+    val allUserHidden = selected.all { it.isUserHidden }
+    val paths = selected.map { it.path }
+
+    if (allUserHidden) {
+      repository.unhidePaths(paths)
+      _userNotice.value = "Unhid ${selected.size} item(s)"
+    } else {
+      repository.hidePaths(paths)
+      _userNotice.value = if (_showHiddenFolders.value) {
+        "Marked ${selected.size} item(s) as hidden"
+      } else {
+        "Hid ${selected.size} item(s)"
+      }
     }
-  }
-
-  fun closeSearch() {
-    _isSearchActive.value = false
-    _searchQuery.value = ""
-    refreshDirectory()
-  }
-
-  fun setSortOption(option: SortOption) {
-    _sortOption.value = option
-    refreshDirectory()
-  }
-
-  fun setViewMode(mode: ViewMode) {
-    _viewMode.value = mode
-  }
-
-  fun toggleHiddenFiles() {
-    _showHiddenFiles.update { !it }
-    refreshDirectory()
-  }
-
-  fun selectCategory(category: FileCategory?) {
-    _selectedCategory.value = if (_selectedCategory.value == category) null else category
+    clearSelection()
     refreshDirectory()
   }
 
@@ -254,8 +223,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
   }
 
   fun selectAll() {
-    val allPaths = _items.value.map { it.path }.toSet()
-    _selectedItemPaths.value = allPaths
+    _selectedItemPaths.value = _items.value.map { it.path }.toSet()
   }
 
   fun clearSelection() {
@@ -268,7 +236,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     if (selectedItems.isNotEmpty()) {
       _clipboard.value = StagedClipboard(action, selectedItems)
       clearSelection()
-      _userNotice.value = "${selectedItems.size} item(s) staged to ${action.name.lowercase()}."
+      _userNotice.value = "${selectedItems.size} item(s) staged to ${action.name.lowercase()}"
     }
   }
 
@@ -291,7 +259,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         onSuccess = { count ->
           _isLoading.value = false
           _clipboard.value = null
-          _userNotice.value = "Successfully ${if (clip.action == ClipboardAction.COPY) "copied" else "moved"} $count item(s)"
+          _userNotice.value = "${if (clip.action == ClipboardAction.COPY) "Copied" else "Moved"} $count item(s)"
           refreshDirectory()
           loadVolumes()
         },
@@ -349,6 +317,7 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
       res.fold(
         onSuccess = {
           closeDialog()
+          clearSelection()
           _userNotice.value = "Renamed to $newName"
           refreshDirectory()
         },
@@ -377,26 +346,20 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     }
   }
 
-  fun inspectItem(item: FileItem) {
-    viewModelScope.launch {
-      _isLoading.value = true
-      val info = repository.inspectFile(item)
-      _inspectionInfo.value = info
-      _isLoading.value = false
-    }
-  }
-
-  fun closeInspection() {
-    _inspectionInfo.value = null
-  }
-
-  fun openFile(item: FileItem) {
+  fun openFile(item: FileItem, onOpenExternalDocument: (FileItem) -> Boolean = { false }) {
     if (item.isDirectory) {
       navigateTo(item.path)
       return
     }
 
-    if (item.category == FileCategory.DOCUMENT || item.category == FileCategory.CODE || item.category == FileCategory.OTHER) {
+    if (item.category == FileCategory.IMAGE) {
+      _activePreviewFile.value = item
+      _activePreviewText.value = null
+      _isEditingText.value = false
+      return
+    }
+
+    if (item.isTextDocument) {
       viewModelScope.launch {
         _isLoading.value = true
         val textRes = repository.readFileText(item.path)
@@ -409,13 +372,20 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
           },
           onFailure = {
             _isLoading.value = false
-            inspectItem(item)
+            if (!onOpenExternalDocument(item)) {
+              _errorMessage.value = "Cannot open ${item.name}"
+            }
           }
         )
       }
-    } else {
-      // Open preview / details
+      return
+    }
+
+    // For PDFs, Office documents, Audio, Video, etc., try external viewer first, else fallback modal
+    if (!onOpenExternalDocument(item)) {
       _activePreviewFile.value = item
+      _activePreviewText.value = null
+      _isEditingText.value = false
     }
   }
 
@@ -448,12 +418,6 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
     _activePreviewFile.value = null
     _activePreviewText.value = null
     _isEditingText.value = false
-  }
-
-  fun toggleBookmark(item: FileItem) {
-    val isBookmarked = repository.toggleBookmark(item.path)
-    _userNotice.value = if (isBookmarked) "Added to Bookmarks" else "Removed from Bookmarks"
-    refreshDirectory()
   }
 
   fun dismissNotice() {
